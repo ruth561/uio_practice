@@ -1,28 +1,48 @@
-
+target		:= xhci_driver
+sources		:= $(wildcard *.cpp)
+objects		:= $(subst .cpp,.o,$(sources))
+CXX			:= g++
+CXXFLAGS	:= -Wall
 # The bus id of xHCI.
+xhci_id 	= $(shell lspci -nn | grep xHCI | grep -o '\[....\:....\]' | sed 's#\[##' | sed 's#\]##' | sed 's#\:# #')
 xhci_bus_id	= $(addprefix 0000:,$(shell lspci | grep xHCI | cut -d ' ' -f 1))
 
-# Loads uio module to kernel.
-.PHONY: load_uio
-load_uio:
-	modprobe uio
+all: $(target)
 
-# Loads uio_pci_generic module to kernel.
-.PHONY: load_uio_pci_generic
-load_uio_pci_generic:
+run: $(target)
+	sudo ./$(target)
+
+$(target): $(objects)
+	$(CXX) -o $@ $^
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $^
+
+# loads modules and registers the vendor/device id of the xhci
+.PHONY: setup_uio_xhci
+setup_uio_xhci:
 	modprobe uio_pci_generic
+	echo $(xhci_id) | sudo tee /sys/bus/pci/drivers/uio_pci_generic/new_id
 
-# Enables the xHCI in uio 
-.PHONY: enable_xhci
-enable_xhci:
-	@modprobe uio_pci_generic
-	@sudo sh -c 'echo -n $(xhci_bus_id) > /sys/bus/pci/drivers/xhci_hcd/unbind' 
-	@sudo sh -c 'echo -n $(xhci_bus_id) > /sys/bus/pci/drivers/uio_pci_generic/bind' 
-	@echo 'See /dev/uioX'
+# enables xhci in uio
+.PHONY: enable_uio_xhci
+enable_uio_xhci:
+	modprobe uio_pci_generic
+	echo -n $(xhci_bus_id) | sudo tee /sys/bus/pci/drivers/xhci_hcd/unbind > /dev/null
+	echo -n $(xhci_bus_id) | sudo tee /sys/bus/pci/drivers/uio_pci_generic/bind > /dev/null
 
-# Disables the xHCI in uio 
-.PHONY: disable_xhci
-disable_xhci:
-	@modprobe uio_pci_generic
-	@sudo sh -c 'echo -n $(xhci_bus_id) > /sys/bus/pci/drivers/uio_pci_generic/unbind'
-	@sudo sh -c 'echo -n $(xhci_bus_id) > /sys/bus/pci/drivers/xhci_hcd/bind'
+# disables xhci in uio 
+.PHONY: disable_uio_xhci
+disable_uio_xhci:
+	modprobe uio_pci_generic
+	echo -n $(xhci_bus_id) | sudo tee /sys/bus/pci/drivers/uio_pci_generic/unbind > /dev/null
+	echo -n $(xhci_bus_id) | sudo tee /sys/bus/pci/drivers/xhci_hcd/bind > /dev/null
+
+.PHONY: debug
+debug:
+	@echo $(xhci_id)
+	@echo $(xhci_bus_id)
+
+.PHONY: clean
+clean:
+	rm -r -f $(target) $(objects)
